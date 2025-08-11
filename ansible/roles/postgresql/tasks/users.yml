@@ -1,0 +1,14 @@
+- name: Define list of OS users
+  set_fact:
+    os_users:
+      - appadmin
+      - devops
+      - analyst
+- name: Create Linux OS users
+  user:
+    name: "{{ item }}"
+    shell: /bin/bash
+    create_home: yes
+    state: present
+  with_items: "{{ os_users }}"
+  become: true

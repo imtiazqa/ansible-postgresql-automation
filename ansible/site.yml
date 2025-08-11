@@ -1,0 +1,13 @@
+---
+- name: Setup PostgreSQL 17
+  hosts: all
+  become: true
+  vars:
+    ansible_become_method: sudo  # Method to elevate privileges
+    pg_version: 17
+    pg_data_dir: /tmp/postgresql_data
+    pg_bin_dir: /usr/lib/postgresql/17/bin
+    pg_log_file: /tmp/postgresql_data/postgresql.log
+
+  roles:
+    - postgresql

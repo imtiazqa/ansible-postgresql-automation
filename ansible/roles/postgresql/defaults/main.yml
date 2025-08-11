@@ -1,0 +1,5 @@
+pg_version: 17
+# Default settings
+pg_user: postgres
+pg_port: 5432
+pg_database: postgres

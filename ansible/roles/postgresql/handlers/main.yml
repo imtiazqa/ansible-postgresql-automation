@@ -1,0 +1,4 @@
+- name: create sample table
+  shell: |
+    sudo -u postgres psql -d postgres -c "CREATE TABLE IF NOT EXISTS sample (id SERIAL PRIMARY KEY, name TEXT);"
+

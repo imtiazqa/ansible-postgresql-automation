@@ -1,0 +1,109 @@
+- name: "[Step 1] Install prerequisites"
+  apt:
+    name:
+      - gnupg2
+      - ca-certificates
+      - curl
+      - lsb-release
+    state: present
+    update_cache: true
+# ✅ Include OS user creation task (only for node1 and node2)
+- name: Include OS user creation task
+  include_tasks: users.yml
+  when: inventory_hostname in ["node1", "node2"]
+- name: Verify created OS users
+  block:
+    - name: Check if user {{ item }} exists
+      ansible.builtin.command: id {{ item }}
+      register: user_check
+      ignore_errors: true
+      loop:
+        - appadmin
+        - devops
+        - analyst
+
+    - name: Show user existence
+      debug:
+        msg: "{{ item.item }} exists: {{ item.rc == 0 }}"
+      loop: "{{ user_check.results }}"
+- name: "[Step 2] Add PostgreSQL APT repository key"
+  apt_key:
+    url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    state: present
+- name: Force codename to jammy
+  set_fact:
+    pg_codename: jammy
+- name: Add PostgreSQL APT repository
+  apt_repository:
+    repo: "deb http://apt.postgresql.org/pub/repos/apt/ {{ pg_codename }}-pgdg main"
+    state: present
+    filename: 'pgdg'
+
+- name: "[Step 4] Install PostgreSQL {{ pg_version }}"
+  apt:
+    name: "postgresql-{{ pg_version }}"
+    state: present
+    update_cache: true
+
+- name: "[Step 5] Stop system PostgreSQL service (if running)"
+  shell: "pg_ctlcluster {{ pg_version }} main stop"
+  ignore_errors: true
+  register: pg_stop_result
+  changed_when: false
+  when: ansible_service_mgr == "systemd"
+
+- name: "[Step 6] Ensure data directory is clean"
+  file:
+    path: "{{ pg_data_dir }}"
+    state: absent
+
+- name: "[Step 6.1] Ensure data directory exists with correct ownership"
+  file:
+    path: "{{ pg_data_dir }}"
+    state: directory
+    owner: postgres
+    group: postgres
+    recurse: yes
+    mode: '0700'
+- name: "[Step 7] Initialize PostgreSQL"
+  shell: "sudo -u postgres {{ pg_bin_dir }}/initdb -D {{ pg_data_dir }}"
+  args:
+    creates: "{{ pg_data_dir }}/PG_VERSION"
+
+- name: "[Step 8] Start PostgreSQL with custom config"
+  shell: "sudo -u postgres {{ pg_bin_dir }}/pg_ctl -D {{ pg_data_dir }} -l {{ pg_log_file }} -o '-c config_file={{ pg_data_dir }}/postgresql.conf' start"
+  async: 10
+  poll: 0
+
+- name: "[Step 9] Wait for PostgreSQL to start"
+  wait_for:
+    port: 5432
+    delay: 5
+    timeout: 30
+
+- name: "[Step 10] Show PostgreSQL version"
+  shell: "sudo -u postgres psql -c 'SELECT version();'"
+  register: pg_version_output
+
+- name: Display PostgreSQL version
+  debug:
+    msg: "{{ pg_version_output.stdout }}"
+- name: "[Step 11] Notify table creation"
+  command: /bin/true
+  notify: create sample table
+
+- meta: flush_handlers
+
+- name: "[Step 12] Check if sample table was created"
+  shell: |
+    sudo -u postgres psql -d postgres -tAc "SELECT to_regclass('public.sample');"
+  register: table_check
+
+- name: "[Step 13] Display table creation result"
+  debug:
+    msg: >
+      {% if table_check.stdout == "sample" %}
+        ✅ Table 'sample' exists.
+      {% else %}
+        ❌ Table 'sample' does NOT exist.
+      {% endif %}
